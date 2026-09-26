@@ -5,7 +5,7 @@ MESA_COMMIT="8736d1a9a6b323fc2c6c1bdb5d6a445f1cef1575"
 NDK_VER="android-ndk-r29"
 ANDROID_API="34"
 PLATFORM_SDK="36"
-BUILD_VERSION="25.1-wow-ir3"
+BUILD_VERSION="25.1-wow-ir3-fallback"
 WORKDIR="${RUNNER_TEMP:-/tmp}/wow-turnip-build"
 PREFIX="$WORKDIR/install"
 MESA_DIR="$WORKDIR/mesa"
@@ -17,7 +17,7 @@ rm -rf "$WORKDIR"
 mkdir -p "$WORKDIR" "$OUTDIR"
 
 echo "== Download Android NDK r29 =="
-curl -L --fail --retry 3   "https://dl.google.com/android/repository/${NDK_VER}-linux.zip"   -o "$WORKDIR/${NDK_VER}-linux.zip"
+curl -L --fail --retry 3 "https://dl.google.com/android/repository/${NDK_VER}-linux.zip" -o "$WORKDIR/${NDK_VER}-linux.zip"
 unzip -q "$WORKDIR/${NDK_VER}-linux.zip" -d "$WORKDIR"
 
 echo "== Fetch exact A8XX MR v25.1 source revision =="
@@ -30,14 +30,14 @@ ACTUAL_COMMIT="$(git -C "$MESA_DIR" rev-parse HEAD)"
 test "$ACTUAL_COMMIT" = "$MESA_COMMIT"
 echo "Mesa commit: $ACTUAL_COMMIT"
 
-echo "== Verify and apply WoW IR3 patch =="
+echo "== Verify and apply WoW IR3 fallback patch =="
 git -C "$MESA_DIR" apply --check "$GITHUB_WORKSPACE/patches/wow-ir3.patch"
 git -C "$MESA_DIR" apply "$GITHUB_WORKSPACE/patches/wow-ir3.patch"
 git -C "$MESA_DIR" diff --check
 
-grep -n -A6 -B3 'baryf->block != instr->block'   "$MESA_DIR/src/freedreno/ir3/ir3_sched.c"
+grep -n -A8 -B4 'relax_cross_block_baryf' "$MESA_DIR/src/freedreno/ir3/ir3_sched.c"
 
-echo '#define TUGEN8_DRV_VERSION "v25.1-wow-ir3"'   > "$MESA_DIR/src/freedreno/vulkan/tu_version.h"
+echo '#define TUGEN8_DRV_VERSION "v25.1-wow-ir3-fallback"' > "$MESA_DIR/src/freedreno/vulkan/tu_version.h"
 
 mkdir -p "$WORKDIR/bin"
 ln -sf "$NDK_BIN/clang" "$WORKDIR/bin/cc"
@@ -110,10 +110,10 @@ cp "$LIB" "$PKG/libvulkan_freedreno.so"
 cat > "$PKG/meta.json" <<'EOF'
 {
   "schemaVersion": 1,
-  "name": "A8XX MR v25.1 WoW IR3",
-  "description": "A8XX MR v25.1 source base with WoW barycentric IR3 scheduler patch; test build for Adreno 829",
-  "author": "whitebelyash base + WoW IR3 patch",
-  "packageVersion": "1",
+  "name": "A8XX MR v25.1 WoW IR3 Fallback",
+  "description": "A8XX MR v25.1 with fallback-only WoW IR3 scheduler relaxation for Adreno 829 testing",
+  "author": "whitebelyash base + fallback-only WoW IR3 patch",
+  "packageVersion": "2",
   "vendor": "Mesa",
   "driverVersion": "Vulkan 1.4.335",
   "minApi": 28,
@@ -123,16 +123,17 @@ EOF
 
 (
   cd "$PKG"
-  zip -9 "$OUTDIR/A8XX-MR-v25.1-WoW-IR3.zip" libvulkan_freedreno.so meta.json
+  zip -9 "$OUTDIR/A8XX-MR-v25.1-WoW-IR3-Fallback.zip" libvulkan_freedreno.so meta.json
 )
 
-sha256sum "$OUTDIR/A8XX-MR-v25.1-WoW-IR3.zip"   | tee "$OUTDIR/A8XX-MR-v25.1-WoW-IR3.zip.sha256"
+sha256sum "$OUTDIR/A8XX-MR-v25.1-WoW-IR3-Fallback.zip" | tee "$OUTDIR/A8XX-MR-v25.1-WoW-IR3-Fallback.zip.sha256"
 
 cat > "$OUTDIR/PROVENANCE.txt" <<EOF
 Base repository: https://github.com/whitebelyash/mesa-tu8
 Base commit: $MESA_COMMIT
 Reference package: A8XX MR v25.1
 Patch: patches/wow-ir3.patch
+Patch mode: fallback-only cross-block bary.f relaxation
 NDK: $NDK_VER
 Android compiler API: $ANDROID_API
 Mesa platform-sdk-version: $PLATFORM_SDK
@@ -141,5 +142,3 @@ EOF
 
 echo "== Output =="
 ls -lh "$OUTDIR"
-
-# build trigger

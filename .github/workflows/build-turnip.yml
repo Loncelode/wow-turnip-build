@@ -1,4 +1,4 @@
-name: Build A8XX MR v25.1 + WoW IR3
+name: Build A8XX MR v25.1 + WoW IR3 Fallback
 
 on:
   workflow_dispatch:
@@ -23,7 +23,7 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y             build-essential             clang             lld             ccache             flex             bison             glslang-tools             ninja-build             patchelf             unzip             curl             zip             pkg-config             python3-pip             python3-mako
+          sudo apt-get install -y build-essential clang lld ccache flex bison glslang-tools ninja-build patchelf unzip curl zip pkg-config python3-pip python3-mako
           python3 -m pip install --break-system-packages "meson==1.5.2"
 
       - name: Build patched Turnip
@@ -32,9 +32,9 @@ jobs:
       - name: Upload GameNative package
         uses: actions/upload-artifact@v4
         with:
-          name: A8XX-MR-v25.1-WoW-IR3
+          name: A8XX-MR-v25.1-WoW-IR3-Fallback
           path: |
-            ${{ runner.temp }}/wow-turnip-build/out/A8XX-MR-v25.1-WoW-IR3.zip
-            ${{ runner.temp }}/wow-turnip-build/out/A8XX-MR-v25.1-WoW-IR3.zip.sha256
+            ${{ runner.temp }}/wow-turnip-build/out/A8XX-MR-v25.1-WoW-IR3-Fallback.zip
+            ${{ runner.temp }}/wow-turnip-build/out/A8XX-MR-v25.1-WoW-IR3-Fallback.zip.sha256
             ${{ runner.temp }}/wow-turnip-build/out/PROVENANCE.txt
           if-no-files-found: error

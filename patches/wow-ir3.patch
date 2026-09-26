@@ -1,12 +1,52 @@
 diff --git a/src/freedreno/ir3/ir3_sched.c b/src/freedreno/ir3/ir3_sched.c
 --- a/src/freedreno/ir3/ir3_sched.c
 +++ b/src/freedreno/ir3/ir3_sched.c
-@@ -500,6 +500,8 @@
+@@ -88,6 +88,9 @@ struct ir3_sched_ctx {
+ 
+    bool error;
+ 
++   /* Only relax cross-block bary.f waits as a deadlock fallback. */
++   bool relax_cross_block_baryf;
++
+    unsigned ip;
+ 
+    int sy_delay;
+@@ -502,6 +505,11 @@ check_instr(struct ir3_sched_ctx *ctx, struct ir3_sched_notes *notes,
  
        for (unsigned i = 0; i < ir->baryfs_count; i++) {
           struct ir3_instruction *baryf = ir->baryfs[i];
-+         if (baryf->block != instr->block)
++         /* Preserve stock scheduling unless this block is otherwise
++          * deadlocked solely by bary.f instructions in other blocks.
++          */
++         if (ctx->relax_cross_block_baryf && baryf->block != instr->block)
 +            continue;
           if (baryf->flags & IR3_INSTR_UNUSED)
              continue;
           if (!is_scheduled(baryf)) {
+@@ -1131,6 +1139,7 @@ sched_block(struct ir3_sched_ctx *ctx, struct ir3_block *block)
+ {
+    ctx->block = block;
++   ctx->relax_cross_block_baryf = false;
+ 
+    /* addr/pred writes are per-block: */
+    ctx->addr0 = NULL;
+@@ -1196,6 +1205,7 @@ sched_block(struct ir3_sched_ctx *ctx, struct ir3_block *block)
+ 
+       instr = choose_instr(ctx, &notes);
+       if (instr) {
++         ctx->relax_cross_block_baryf = false;
+          unsigned delay = node_delay(ctx, instr->data);
+          d("delay=%u", delay);
+ 
+@@ -1225,6 +1235,13 @@ sched_block(struct ir3_sched_ctx *ctx, struct ir3_block *block)
+                split_addr(ctx, &ctx->addr1, ir->a1_users, ir->a1_users_count);
++         } else if (notes.blocked_kill && !ctx->relax_cross_block_baryf) {
++            /* Retry once with only cross-block bary.f waits relaxed.
++             * This keeps normal shaders on the stock path and changes
++             * scheduling only when the original logic would deadlock.
++             */
++            ctx->relax_cross_block_baryf = true;
++            continue;
+          } else {
+             d("unscheduled_list:");
+             foreach_instr (instr, &ctx->unscheduled_list)
