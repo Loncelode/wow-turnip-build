@@ -141,3 +141,5 @@ EOF
 
 echo "== Output =="
 ls -lh "$OUTDIR"
+
+# build trigger
