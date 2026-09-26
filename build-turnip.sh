@@ -30,11 +30,102 @@ ACTUAL_COMMIT="$(git -C "$MESA_DIR" rev-parse HEAD)"
 test "$ACTUAL_COMMIT" = "$MESA_COMMIT"
 echo "Mesa commit: $ACTUAL_COMMIT"
 
-echo "== Verify and apply WoW IR3 fallback patch =="
-git -C "$MESA_DIR" apply --check "$GITHUB_WORKSPACE/patches/wow-ir3.patch"
-git -C "$MESA_DIR" apply "$GITHUB_WORKSPACE/patches/wow-ir3.patch"
-git -C "$MESA_DIR" diff --check
+echo "== Apply fallback-only WoW IR3 scheduler change =="
+python3 - "$MESA_DIR/src/freedreno/ir3/ir3_sched.c" <<'PY'
+from pathlib import Path
+import sys
 
+p = Path(sys.argv[1])
+s = p.read_text()
+
+repls = [
+(
+"""   bool error;
+
+   unsigned ip;
+""",
+"""   bool error;
+
+   /* Only relax cross-block bary.f waits as a deadlock fallback. */
+   bool relax_cross_block_baryf;
+
+   unsigned ip;
+"""
+),
+(
+"""      for (unsigned i = 0; i < ir->baryfs_count; i++) {
+         struct ir3_instruction *baryf = ir->baryfs[i];
+         if (baryf->flags & IR3_INSTR_UNUSED)
+""",
+"""      for (unsigned i = 0; i < ir->baryfs_count; i++) {
+         struct ir3_instruction *baryf = ir->baryfs[i];
+         /* Preserve stock scheduling unless this block is otherwise
+          * deadlocked solely by bary.f instructions in other blocks.
+          */
+         if (ctx->relax_cross_block_baryf && baryf->block != instr->block)
+            continue;
+         if (baryf->flags & IR3_INSTR_UNUSED)
+"""
+),
+(
+"""sched_block(struct ir3_sched_ctx *ctx, struct ir3_block *block)
+{
+   ctx->block = block;
+
+   /* addr/pred writes are per-block: */
+""",
+"""sched_block(struct ir3_sched_ctx *ctx, struct ir3_block *block)
+{
+   ctx->block = block;
+   ctx->relax_cross_block_baryf = false;
+
+   /* addr/pred writes are per-block: */
+"""
+),
+(
+"""      instr = choose_instr(ctx, &notes);
+      if (instr) {
+         unsigned delay = node_delay(ctx, instr->data);
+""",
+"""      instr = choose_instr(ctx, &notes);
+      if (instr) {
+         ctx->relax_cross_block_baryf = false;
+         unsigned delay = node_delay(ctx, instr->data);
+"""
+),
+(
+"""         } else if (notes.addr1_conflict) {
+            new_instr =
+               split_addr(ctx, &ctx->addr1, ir->a1_users, ir->a1_users_count);
+         } else {
+            d("unscheduled_list:");
+""",
+"""         } else if (notes.addr1_conflict) {
+            new_instr =
+               split_addr(ctx, &ctx->addr1, ir->a1_users, ir->a1_users_count);
+         } else if (notes.blocked_kill && !ctx->relax_cross_block_baryf) {
+            /* Retry once with only cross-block bary.f waits relaxed.
+             * This keeps normal shaders on the stock path and changes
+             * scheduling only when the original logic would deadlock.
+             */
+            ctx->relax_cross_block_baryf = true;
+            continue;
+         } else {
+            d("unscheduled_list:");
+"""
+),
+]
+
+for i, (old, new) in enumerate(repls, 1):
+    count = s.count(old)
+    if count != 1:
+        raise SystemExit(f"replacement {i}: expected exactly 1 match, got {count}")
+    s = s.replace(old, new, 1)
+
+p.write_text(s)
+PY
+
+git -C "$MESA_DIR" diff --check
 grep -n -A8 -B4 'relax_cross_block_baryf' "$MESA_DIR/src/freedreno/ir3/ir3_sched.c"
 
 echo '#define TUGEN8_DRV_VERSION "v25.1-wow-ir3-fallback"' > "$MESA_DIR/src/freedreno/vulkan/tu_version.h"
@@ -132,7 +223,6 @@ cat > "$OUTDIR/PROVENANCE.txt" <<EOF
 Base repository: https://github.com/whitebelyash/mesa-tu8
 Base commit: $MESA_COMMIT
 Reference package: A8XX MR v25.1
-Patch: patches/wow-ir3.patch
 Patch mode: fallback-only cross-block bary.f relaxation
 NDK: $NDK_VER
 Android compiler API: $ANDROID_API
