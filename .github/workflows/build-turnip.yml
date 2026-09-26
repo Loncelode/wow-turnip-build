@@ -1,0 +1,40 @@
+name: Build A8XX MR v25.1 + WoW IR3
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/build-turnip.yml"
+      - "build-turnip.sh"
+      - "patches/wow-ir3.patch"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout build repo
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y             build-essential             clang             lld             ccache             flex             bison             glslang-tools             ninja-build             patchelf             unzip             curl             zip             pkg-config             python3-pip             python3-mako
+          python3 -m pip install --break-system-packages "meson==1.5.2"
+
+      - name: Build patched Turnip
+        run: bash ./build-turnip.sh
+
+      - name: Upload GameNative package
+        uses: actions/upload-artifact@v4
+        with:
+          name: A8XX-MR-v25.1-WoW-IR3
+          path: |
+            ${{ runner.temp }}/wow-turnip-build/out/A8XX-MR-v25.1-WoW-IR3.zip
+            ${{ runner.temp }}/wow-turnip-build/out/A8XX-MR-v25.1-WoW-IR3.zip.sha256
+            ${{ runner.temp }}/wow-turnip-build/out/PROVENANCE.txt
+          if-no-files-found: error
